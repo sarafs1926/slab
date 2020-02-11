@@ -1744,5 +1744,70 @@ class SequentialExperiment:
             print("transfer function channel not found, using original input amp")
             output_amp = amp
         return output_amp
-
+    
+    
+    def sequential_qoc_amp_norm_snap(self, quantum_device_cfg, experiment_cfg, hardware_cfg, path):
+        """
+        This experiment runs the qoc_amp_norm_snap experiment for a range of
+        amp_norm_multipliers.
         
+        Arguments:
+        quantum_device_cfg :: dict
+        experiment_cfg :: dict
+        hardware_cfg :: dict
+        path :: str
+        
+        Returns: None
+        
+        Experiment Config "sequential_qoc_amp_norm_snap" Requires:
+        amp_norm_multiplier_lo :: float - the lowest, inclusive, amplitude multiplier to include
+        amp_norm_multiplier_hi :: float - the highest, exclusive, amplitude multiplier to include
+        amp_norm_multiplier_step :: float - the step between amp_norm_lo and amp_norm_hi at which
+            amp_norm_multipliers are determined,
+            uses np.arange(amp_norm_lo, amp_norm_hi, amp_norm_step)
+        control_file_path :: str - the path to the file where the control
+            pulses are stored
+        control_indices :: list(int) - the indices of the controls in the pulse
+            that should be scaled
+        on_qubits :: list(str) - strings of indices corresponding to the qubits
+            at play, 1-indexed
+        """
+        # Declare constants.
+        seq_expt_name = "sequential_qoc_amp_norm_snap"
+        base_expt_name = "qoc_amp_norm_snap"
+
+        # Get information about the experiment.
+        seq_expt_cfg = experiment_cfg[seq_expt_name]
+        base_expt_cfg = experiment_cfg[base_expt_name]
+        data_path = os.path.join(path, "data")
+        seq_data_file_path = os.path.join(data_path,
+                                          get_next_filename(data_path,
+                                                            seq_expt_name,
+                                                            suffix=".h5"))
+        anm_lo = seq_expt_cfg["amp_norm_multiplier_lo"]
+        anm_hi = seq_expt_cfg["amp_norm_multiplier_hi"]
+        anm_step = seq_expt_cfg["amp_norm_multiplier_step"]
+        amp_norm_multipliers = np.arange(anm_lo, anm_hi, anm_step)
+        control_indices = seq_expt_cfg["control_indices"]
+        control_file_path = seq_expt_cfg["control_file_path"]
+        on_qubits = seq_expt_cfg["on_qubits"]
+
+        # Copy static information to base experiment config.
+        base_expt_cfg["control_file_path"] = control_file_path
+        base_expt_cfg["control_indices"] = control_indices
+        base_expt_cfg["on_qubits"] = on_qubits
+
+        # For each amp_norm_multiplier, run the base experiment.
+        for amp_norm_multiplier in amp_norm_multipliers:
+            base_expt_cfg["amp_norm_multiplier"] = amp_norm_multiplier
+            ps = PulseSequence(quantum_device_cfg, experiment_cfg, hardware_cfg)
+            sequences = ps.get_experiment_sequences(base_expt_name)
+            base_expt = Experiment(quantum_device_cfg, experiment_cfg,
+                                   hardware_cfg, sequences, base_expt_name)
+            I, Q = base_expt.run_experiment_pxi(sequences, path, base_expt_name,
+                                                seq_data_file=seq_data_file_path)
+            self.Is.append(I)
+            self.Qs.append(Q)
+        
+        self.Is = np.array(self.Is)
+        self.Qs = np.array(self.Qs)

@@ -3645,6 +3645,97 @@ class PulseSequences:
 
         return sequencer.complete(self, plot=self.plot_visdom)
 
+    def qoc_amp_norm_snap(self, sequencer):
+        """
+        This experiment is intended for sweeping the amplitude norm of an
+        optimal control pulse that provides a SNAP-style setup.
+        In particular, this experiment expects an input pulse that
+        has a cavity, ge, and ef drives.
+        
+        Arguments:
+        sequencer :: ??
+        
+        Returns: None
+        
+        Experiment Config "qoc_amp_norm_snap" Requires:
+        amp_norm_multiplier :: float - the value by which to scale the norm of
+            the qoc pulses
+        control_file_path :: str - the path to the file where the control
+            pulses are stored
+        control_indices :: list(int) - the indices of the controls in the pulse
+            that should be scaled
+        on_qubits :: list(str) - strings of indices corresponding to the qubits
+            at play, 1-indexed
+        """
+        # Declare constants.
+        expt_name = "qoc_amp_norm_snap"
+        # These indices correspond to
+        # order in the control file and the control_indices.
+        cavity_index = 0
+        ge_index = 1
+        ef_index =2 
+        
+        # Get information about the experiment.
+        amp_norm_multiplier = self.expt_cfg["amp_norm_multiplier"]
+        control_file_path = self.expt_cfg["control_file_path"]
+        control_file_lock_path = "{}.lock".format(control_file_path)
+        control_indices = self.expt_cfg["control_indices"]
+
+        # Get information about the device.
+        carrier_freqs = {
+            "pi_ge": self.quantum_device_cfg['qubit'][qubit_id]['freq'],
+            "pi_ef": (self.quantum_device_cfg['qubit'][qubit_id]['freq'] +
+                      self.quantum_device_cfg['qubit'][qubit_id]['anharmonicity']),
+            "cavity": self.quantum_device_cfg['cavity']['1']['freq'],
+            "f0g1": self.quantum_device_cfg['flux_pulse_info'][qubit_id]['f0g1_freq'][0]
+        }
+
+        # Get the controls from their file.
+        try:
+            with FileLock(control_file_lock_path):
+                with h5py.File(control_file_path, "r") as control_file:
+                    controls = pulse_file_path["controls"][()]
+                    evolution_time = pulse_file_path["evolution_time"][()]
+                #ENDWITH
+            #ENDWITH
+        except Timeout:
+            print("Timeout encountered while locking {}."
+                  "".format(control_file_lock_path))
+        #ENDTRY
+
+        # Scale the controls.
+        cavity_controls = controls[:, cavity_index]
+        ge_controls = controls[:, ge_index]
+        ef_controls = controls[:, ef_index]
+        if cavity_index in control_indices:
+            cavity_controls = amp_norm_multiplier * cavity_controls
+        if ge_index in control_indices:
+            ge_controls = amp_norm_multiplier * ge_controls
+        if ef_index in control_indices:
+            ef_controls = amp_norm_multiplier * ef_controls
+        # TODO(tpr0p): Add rotating frame transformation.
+        cavity_controls_real = np.real(cavity_controls)
+        cavity_controls_imag = np.imag(cavity_controls)
+        ge_controls_real = np.real(ge_controls)
+        ge_controls_imag = np.imag(ge_controls)
+        ef_controls_real = np.real(ef_controls)
+        ef_controls_imag = np.imag(ef_controls)
+
+        # Build the sequence
+        sequencer.new_sequence(self)
+        sequencer.append('cavity',
+                         ARB(A_list=cavity_controls_real, B_list=cavity_controls_imag,
+                             len=total_time, freq=carrier_freqs["cavity"], phase=0, scale=1.0))
+        sequencer.append("charge1",
+                         ARB_Sum(A_list_list=[ge_controls_real, ef_controls_real],
+                                 B_list_list=[ge_controls_imag, ef_controls_imag],
+                                 len=evolution_time,
+                                 freq_list=[carrier_freqs["pi_ge"], carrier_freqs["pi_ef"]],
+                                 phase_list=[0, 0], scale=1.0))
+        # TODO(tpr0p): Add photon number distribution measurement.
+        self.readout_pxi(sequencer, self.expt_cfg["on_qubits"])
+        sequencer.end_sequence()
+
 
 if __name__ == "__main__":
     cfg = {

@@ -1,11 +1,12 @@
-# IDE meta files
+# editor files
 .idea
-# pyc files
-.pyc
+*~
+*#
 
+# binaries
 *.pyc
+__pycache__
 
-*.pyc
 # Instrument cfg
 instruments/instrument.cfg
 instruments/awg/test M8195A.ipynb
